@@ -35,7 +35,7 @@ const HELP_MESSAGE =
   "atau kirim foto piring makananmu / label info nilai gizi kemasan.\n\n" +
   "Fitur air minum, olahraga, dan reminder akan segera hadir.";
 
-const MEAL_CALLBACK_PATTERN = /^meal:([0-9a-f-]{36}):(dec|inc|edit|save)$/;
+const MEAL_CALLBACK_PATTERN = /^meal:([0-9a-f-]{36}):(dec|inc|edit|save|cancel)$/;
 
 function createBot(): Bot {
   const instance = new Bot(env.TELEGRAM_BOT_TOKEN);

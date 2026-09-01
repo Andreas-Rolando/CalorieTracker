@@ -148,6 +148,13 @@ export async function continueOnboarding(
   text: string
 ): Promise<void> {
   const trimmed = text.trim();
+
+  if (["batal", "cancel", "/batal", "/cancel"].includes(trimmed.toLowerCase())) {
+    await clearBotSession(telegramId);
+    await ctx.reply("❌ Onboarding dibatalkan. Ketik /start kapan saja untuk mulai lagi.");
+    return;
+  }
+
   const updated: OnboardingState = { ...state };
 
   switch (step) {

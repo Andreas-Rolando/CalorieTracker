@@ -8,6 +8,7 @@ import {
 import type { MealAnalysis } from "@/lib/gemini/mealAnalysisSchema";
 import { computeTotalsFromItems, scaleTotals } from "@/lib/nutrition/mealTotals";
 import {
+  cancelMealDraft,
   createMealDraft,
   getPendingMealDraft,
   markMealDraftSaved,
@@ -42,7 +43,9 @@ function buildDraftKeyboard(draftId: string): InlineKeyboard {
     .row()
     .text("📝 Edit Manual", `meal:${draftId}:edit`)
     .row()
-    .text("✅ Simpan", `meal:${draftId}:save`);
+    .text("✅ Simpan", `meal:${draftId}:save`)
+    .row()
+    .text("❌ Batal", `meal:${draftId}:cancel`);
 }
 
 function formatDraftMessage(draft: MealDraftRow): string {
@@ -130,7 +133,7 @@ export async function startMealPhotoAnalysis(
   await createDraftFromAnalysis(ctx, telegramId, "photo", analysis);
 }
 
-export type MealDraftAction = "dec" | "inc" | "edit" | "save";
+export type MealDraftAction = "dec" | "inc" | "edit" | "save" | "cancel";
 
 export async function handleMealDraftCallback(
   ctx: Context,
@@ -178,8 +181,16 @@ export async function handleMealDraftCallback(
     });
     await ctx.answerCallbackQuery();
     await ctx.reply(
-      "Ketik nilai gizi manual dipisah spasi, urutan: kalori protein karbo lemak.\nContoh: 550 30 60 15"
+      "Ketik nilai gizi manual dipisah spasi, urutan: kalori protein karbo lemak.\nContoh: 550 30 60 15\n\nAtau ketik batal untuk membatalkan."
     );
+    return;
+  }
+
+  if (action === "cancel") {
+    await cancelMealDraft(draftId, telegramId);
+    await clearBotSession(telegramId);
+    await ctx.answerCallbackQuery({ text: "Dibatalkan" });
+    await ctx.editMessageText("❌ Dibatalkan. Kirim lagi deskripsi/foto makananmu kapan saja.");
     return;
   }
 
@@ -207,7 +218,7 @@ export async function handleMealDraftCallback(
         ? Math.round(totalEstimatedPortionG * draft.portionMultiplier)
         : undefined,
     portionMultiplier: draft.portionMultiplier,
-    source: "text",
+    source: draft.source,
     aiConfidence: draft.base.confidence,
     consumedAt,
     localDate,
@@ -225,12 +236,21 @@ export async function handleMealDraftCallback(
   );
 }
 
+const CANCEL_WORDS = new Set(["batal", "cancel", "/batal", "/cancel"]);
+
 export async function handleMealEditReply(
   ctx: Context,
   telegramId: number,
   draftId: string,
   text: string
 ): Promise<void> {
+  if (CANCEL_WORDS.has(text.trim().toLowerCase())) {
+    await cancelMealDraft(draftId, telegramId).catch(() => {});
+    await clearBotSession(telegramId);
+    await ctx.reply("❌ Dibatalkan. Kirim lagi deskripsi/foto makananmu kapan saja.");
+    return;
+  }
+
   const parts = text.trim().split(/\s+/);
   const numbers = parts.map(Number);
 

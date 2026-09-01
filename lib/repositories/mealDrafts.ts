@@ -150,3 +150,16 @@ export async function markMealDraftSaved(id: string, telegramId: number): Promis
     throw new Error(`Failed to mark meal draft saved: ${error.message}`);
   }
 }
+
+export async function cancelMealDraft(id: string, telegramId: number): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { error } = await supabase
+    .from("meal_drafts")
+    .update({ status: "cancelled" })
+    .eq("id", id)
+    .eq("telegram_id", telegramId);
+
+  if (error) {
+    throw new Error(`Failed to cancel meal draft: ${error.message}`);
+  }
+}
