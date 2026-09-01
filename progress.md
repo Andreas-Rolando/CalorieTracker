@@ -544,3 +544,61 @@ from Milestone 0, `source: "photo"` was already a valid enum value).
   confirm the draft preview, portion correction, and save all work.
 - Then continue with **Milestone 4 (Progress)**: `/bb`, `/air`,
   `/workout`, MET-based calorie burn.
+
+---
+
+## 2026-09-01 — Cancel button/keyword + photo-source bug fix
+
+**Implemented**
+- Photo meal logging worked (user confirmed via a real nutrition-label
+  photo — "Snek Time", 180 kcal), but then tapping "Edit Manual" left
+  the user stuck: no button and no recognized keyword to back out of
+  the 4-number prompt, so typing "cancel" just got rejected as an
+  invalid number, repeatedly.
+- Added a "❌ Batal" button to the draft preview keyboard
+  (`meal:<id>:cancel`) — marks the draft `cancelled`, clears any
+  session, edits the message to confirm.
+- `handleMealEditReply` now recognizes `batal`/`cancel`/`/batal`/
+  `/cancel` (case-insensitive) as a request to cancel the draft and
+  exit the manual-edit prompt, instead of trying to parse them as one
+  of the 4 numbers.
+- Added the identical escape hatch to `continueOnboarding` — same
+  structural problem existed there (no way out short of waiting for
+  the session to expire or restarting via `/start`).
+- **Bug fix found while in this code**: `handleMealDraftCallback`'s
+  "save" branch hardcoded `source: "text"` in the `daily_food_logs`
+  insert, so photo-originated meals (Milestone 3, shipped just before
+  this) were being recorded with the wrong `source` value. Now uses
+  `draft.source`.
+
+**Files Changed**
+- Modified: `lib/repositories/mealDrafts.ts` (added `cancelMealDraft`),
+  `lib/telegram/mealDraft.ts`, `lib/telegram/onboarding.ts`,
+  `lib/telegram/bot.ts` (callback pattern regex now includes `cancel`).
+
+**Database Changes** — none (`meal_drafts.status` already allowed
+`'cancelled'` per the original `0001` schema).
+
+**Environment Changes** — none.
+
+**Validation**
+- `npm run typecheck` ✅
+- `npm run lint` ✅
+- `npm test` ✅ (34/34, unchanged — this is Telegram-flow glue, not
+  unit-tested, consistent with the rest of that layer)
+- `npm run build` ✅
+- Not yet re-tested live by the user against the actual bot.
+
+**Remaining Issues**
+- Not yet confirmed live that the cancel button/keyword and the
+  source-bug fix behave as expected in the real bot.
+- No equivalent "start over" escape hatch exists yet for a stuck
+  onboarding step beyond typing batal/cancel or waiting for expiry —
+  fine for now, just noting the pattern in case more multi-step flows
+  get added later (e.g. reminder setup in Milestone 5).
+
+**Recommended Next Step**
+- User: verify the cancel button and "batal" keyword both work, and
+  that a photo-logged meal now shows up with the correct source.
+- Continue with **Milestone 4 (Progress)**: `/bb`, `/air`, `/workout`,
+  MET-based calorie burn.
