@@ -14,6 +14,7 @@ import {
   type Goal,
 } from "@/lib/nutrition/engine";
 import { env } from "@/lib/env";
+import { normalizeTimezone } from "@/lib/telegram/timezone";
 
 export const ONBOARDING_FLOW = "onboarding";
 
@@ -104,7 +105,7 @@ function promptFor(step: OnboardingStep): string {
         "Balas dengan angka 1-3."
       );
     case "timezone":
-      return "Zona waktu kamu? (contoh: Asia/Jakarta, Asia/Makassar, Asia/Jayapura)";
+      return "Zona waktu kamu? (contoh: Jakarta / WIB, Makassar / WITA, Jayapura / WIT)";
   }
 }
 
@@ -230,13 +231,14 @@ export async function continueOnboarding(
       break;
     }
     case "timezone": {
-      if (!Intl.supportedValuesOf("timeZone").includes(trimmed)) {
+      const normalized = normalizeTimezone(trimmed);
+      if (!normalized) {
         await ctx.reply(
-          "Zona waktu tidak dikenali. Gunakan format IANA, contoh: Asia/Jakarta, Asia/Makassar, atau Asia/Jayapura."
+          "Zona waktu tidak dikenali. Coba ketik Jakarta, WIB, Makassar, WITA, Jayapura, atau WIT."
         );
         return;
       }
-      updated.timezone = trimmed;
+      updated.timezone = normalized;
       break;
     }
   }
