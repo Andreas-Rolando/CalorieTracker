@@ -215,3 +215,66 @@ documented but optional before). No new variables.
 - Then **Milestone 3 (Photo)**: Telegram photo download, Gemini Vision
   analysis reusing the same `meal_drafts` pipeline, no permanent image
   storage.
+
+---
+
+## 2026-09-01 — First real deployment + smoke-test fixes
+
+**Implemented**
+- Deployed to Vercel (`https://calorie-tracker-ruby-seven.vercel.app`),
+  connected to the GitHub repo for auto-deploy on push. Applied
+  `0001_init.sql` to the real Supabase project.
+- Registered the Telegram webhook (`setWebhook` with the real
+  `TELEGRAM_WEBHOOK_SECRET`) — confirmed healthy via `getWebhookInfo`
+  (no `last_error_message`, `pending_update_count: 0`).
+- Fixed a build-time crash: `lib/env.ts` required `NEXT_PUBLIC_APP_URL`
+  with no fallback, so a misconfigured/unsaved value on Vercel failed the
+  *entire* build (`Failed to collect configuration for
+  /api/telegram/webhook`). Now falls back to Vercel's auto-injected
+  `VERCEL_URL` when `NEXT_PUBLIC_APP_URL` is unset, so a missing value
+  degrades gracefully instead of blocking deploys. Explicitly setting
+  `NEXT_PUBLIC_APP_URL` is still recommended for link stability.
+- Fixed onboarding UX found during the real smoke test: the `timezone`
+  step required an exact-case IANA name, so real users typing "jakarta"
+  or "asia/jakarta" got stuck in a rejection loop. Added
+  `lib/telegram/timezone.ts` (`normalizeTimezone`) accepting bare
+  Indonesian city names, WIB/WITA/WIT abbreviations, and any casing, with
+  a case-insensitive fallback against the full IANA list. Extracted out
+  of `onboarding.ts` (which is `server-only`-guarded) specifically so it
+  stays unit-testable.
+
+**Files Changed**
+- Modified: `lib/env.ts` (VERCEL_URL fallback), `lib/telegram/onboarding.ts`
+  (uses the new normalizer).
+- Added: `lib/telegram/timezone.ts` (+ `timezone.test.ts`).
+
+**Database Changes** — none (migration from Milestone 0 applied as-is to
+the real project).
+
+**Environment Changes** — real values now live in Vercel project env vars
+(Telegram token, webhook secret, Supabase keys, Gemini key,
+`NEXT_PUBLIC_APP_URL` pointed at the Vercel domain). No new variables
+introduced.
+
+**Validation**
+- `npm run typecheck` ✅
+- `npm run lint` ✅
+- `npm test` ✅ (32/32)
+- `npm run build` ✅
+- Live: webhook registered and healthy per `getWebhookInfo`; onboarding
+  flow reached the timezone step in real usage (which surfaced the bug
+  just fixed) — full `/start` → save meal → `/hariini` flow not yet
+  confirmed end-to-end after this fix.
+
+**Remaining Issues**
+- End-to-end smoke test (onboarding → meal save → `/hariini`) still
+  needs to be re-run against the deployed bot now that the timezone fix
+  is live.
+- The Telegram bot token was pasted in plaintext during setup
+  conversation earlier — recommended the user rotate it via @BotFather
+  once testing is done; unconfirmed whether that happened.
+
+**Recommended Next Step**
+- Re-run the full smoke test against the live deployment (onboarding
+  through timezone, meal logging, portion correction, `/hariini`).
+- Then continue to **Milestone 3 (Photo)** as previously planned.
