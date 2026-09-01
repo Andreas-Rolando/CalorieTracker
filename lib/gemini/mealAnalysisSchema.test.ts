@@ -68,4 +68,25 @@ describe("MEAL_ANALYSIS_JSON_SCHEMA", () => {
       expect.arrayContaining(["meal_name", "items", "totals", "confidence", "recommendation"])
     );
   });
+
+  it("never contains minLength/maxLength (unsupported by Gemini's responseJsonSchema)", () => {
+    const seenKeys = new Set<string>();
+    const collectKeys = (node: unknown): void => {
+      if (Array.isArray(node)) {
+        node.forEach(collectKeys);
+        return;
+      }
+      if (node !== null && typeof node === "object") {
+        for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+          seenKeys.add(key);
+          collectKeys(value);
+        }
+      }
+    };
+    collectKeys(MEAL_ANALYSIS_JSON_SCHEMA);
+
+    expect(seenKeys.has("minLength")).toBe(false);
+    expect(seenKeys.has("maxLength")).toBe(false);
+    expect(seenKeys.has("$schema")).toBe(false);
+  });
 });
