@@ -47,8 +47,25 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+/**
+ * Vercel always injects `VERCEL_URL` (the deployment's own domain) even if
+ * `NEXT_PUBLIC_APP_URL` wasn't configured in the project settings. Falling
+ * back to it means a missing/misconfigured `NEXT_PUBLIC_APP_URL` degrades
+ * to "links use the auto-assigned domain" instead of failing the whole
+ * build. Explicitly setting `NEXT_PUBLIC_APP_URL` is still recommended so
+ * dashboard links stay stable across deployments.
+ */
+function resolveAppUrl(): string | undefined {
+  if (process.env.NEXT_PUBLIC_APP_URL) return process.env.NEXT_PUBLIC_APP_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return undefined;
+}
+
 function loadEnv(): Env {
-  const parsed = envSchema.safeParse(process.env);
+  const parsed = envSchema.safeParse({
+    ...process.env,
+    NEXT_PUBLIC_APP_URL: resolveAppUrl(),
+  });
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`)
