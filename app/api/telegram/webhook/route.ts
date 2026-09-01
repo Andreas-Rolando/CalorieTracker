@@ -8,6 +8,7 @@ import {
   markTelegramUpdateProcessed,
   reserveTelegramUpdate,
 } from "@/lib/repositories/telegramUpdates";
+import { extractChatId, sendFallbackMessage } from "@/lib/telegram/fallbackMessage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +43,18 @@ export async function POST(request: Request) {
   if (reservation === "skip") {
     // Already processed, or another (fresh) delivery is already handling it.
     return NextResponse.json({ ok: true, skipped: true });
+  }
+  if (reservation === "abandon") {
+    // Failed too many times already — stop Telegram's retry loop instead
+    // of burning more (possibly quota-limited) work on a doomed update.
+    const chatId = extractChatId(update);
+    if (chatId !== undefined) {
+      await sendFallbackMessage(
+        chatId,
+        "Maaf, aku gagal memproses pesan itu setelah beberapa kali coba. Coba kirim ulang ya."
+      );
+    }
+    return NextResponse.json({ ok: true, abandoned: true });
   }
 
   try {
