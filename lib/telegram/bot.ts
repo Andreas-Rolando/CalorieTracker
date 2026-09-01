@@ -16,17 +16,23 @@ import {
   handleMealDraftCallback,
   handleMealEditReply,
   startMealAnalysis,
+  startMealPhotoAnalysis,
   type MealDraftAction,
   type MealEditState,
 } from "@/lib/telegram/mealDraft";
 import { formatDailySummaryMessage, getDailySummary } from "@/lib/telegram/dailySummary";
+import {
+  downloadTelegramFileAsBase64,
+  PhotoDownloadError,
+} from "@/lib/telegram/photoDownload";
 
 const HELP_MESSAGE =
   "Perintah yang tersedia:\n" +
   "/start - mulai atau lihat profil\n" +
   "/hariini - ringkasan kalori & makro hari ini\n" +
   "/help - bantuan\n\n" +
-  "Untuk mencatat makan, langsung chat aja deskripsi makananmu (misal: \"nasi goreng ayam 1 piring\").\n\n" +
+  "Untuk mencatat makan, langsung chat aja deskripsi makananmu (misal: \"nasi goreng ayam 1 piring\"), " +
+  "atau kirim foto piring makananmu / label info nilai gizi kemasan.\n\n" +
   "Fitur air minum, olahraga, dan reminder akan segera hadir.";
 
 const MEAL_CALLBACK_PATTERN = /^meal:([0-9a-f-]{36}):(dec|inc|edit|save)$/;
@@ -91,6 +97,38 @@ function createBot(): Bot {
       action as MealDraftAction,
       user
     );
+  });
+
+  instance.on("message:photo", async (ctx) => {
+    const telegramId = ctx.from?.id;
+    if (telegramId === undefined) return;
+
+    const user = await getUserByTelegramId(telegramId);
+    if (!user?.onboardingCompleted) {
+      await ctx.reply("Yuk mulai dulu dengan /start supaya aku kenal kamu.");
+      return;
+    }
+
+    await ctx.replyWithChatAction("typing");
+
+    const file = await ctx.getFile();
+    if (!file.file_path) {
+      await ctx.reply("Maaf, aku gagal mengambil foto itu. Coba kirim ulang ya.");
+      return;
+    }
+
+    let imageBase64: string;
+    try {
+      imageBase64 = await downloadTelegramFileAsBase64(file.file_path);
+    } catch (error) {
+      if (!(error instanceof PhotoDownloadError)) throw error;
+      await ctx.reply(
+        "Maaf, foto itu gagal diproses (mungkin terlalu besar). Coba kirim foto lain ya."
+      );
+      return;
+    }
+
+    await startMealPhotoAnalysis(ctx, telegramId, imageBase64, "image/jpeg");
   });
 
   instance.on("message:text", async (ctx) => {

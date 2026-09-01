@@ -1,6 +1,11 @@
 import "server-only";
 import { InlineKeyboard, type Context } from "grammy";
-import { analyzeMealText, GeminiAnalysisError } from "@/lib/gemini/mealAnalysis";
+import {
+  analyzeMealPhoto,
+  analyzeMealText,
+  GeminiAnalysisError,
+} from "@/lib/gemini/mealAnalysis";
+import type { MealAnalysis } from "@/lib/gemini/mealAnalysisSchema";
 import { computeTotalsFromItems, scaleTotals } from "@/lib/nutrition/mealTotals";
 import {
   createMealDraft,
@@ -10,6 +15,7 @@ import {
   updateMealDraftPortion,
   type MealDraftBase,
   type MealDraftRow,
+  type MealDraftSource,
 } from "@/lib/repositories/mealDrafts";
 import { insertFoodLog } from "@/lib/repositories/dailyFoodLogs";
 import { getLocalDateString } from "@/lib/dateUtils";
@@ -57,13 +63,34 @@ function formatDraftMessage(draft: MealDraftRow): string {
   );
 }
 
+async function createDraftFromAnalysis(
+  ctx: Context,
+  telegramId: number,
+  source: MealDraftSource,
+  analysis: MealAnalysis
+): Promise<void> {
+  const base: MealDraftBase = {
+    mealName: analysis.meal_name,
+    items: analysis.items,
+    totals: computeTotalsFromItems(analysis.items),
+    confidence: analysis.confidence,
+    recommendation: analysis.recommendation,
+  };
+
+  const draft = await createMealDraft({ telegramId, source, base });
+
+  await ctx.reply(formatDraftMessage(draft), {
+    reply_markup: buildDraftKeyboard(draft.id),
+  });
+}
+
 /** Entry point for a plain-text message once the user is onboarded — analyzes it as a meal. */
 export async function startMealAnalysis(
   ctx: Context,
   telegramId: number,
   description: string
 ): Promise<void> {
-  let analysis;
+  let analysis: MealAnalysis;
   try {
     analysis = await analyzeMealText(description);
   } catch (error) {
@@ -74,19 +101,33 @@ export async function startMealAnalysis(
     return;
   }
 
-  const base: MealDraftBase = {
-    mealName: analysis.meal_name,
-    items: analysis.items,
-    totals: computeTotalsFromItems(analysis.items),
-    confidence: analysis.confidence,
-    recommendation: analysis.recommendation,
-  };
+  await createDraftFromAnalysis(ctx, telegramId, "text", analysis);
+}
 
-  const draft = await createMealDraft({ telegramId, source: "text", base });
+/**
+ * Entry point for a photo message — either a plate of food or a packaged
+ * product's nutrition-facts label. `imageBase64` is only held in memory
+ * for this call; the caller is responsible for not persisting it (PRD
+ * section 10 — no permanent meal photo storage).
+ */
+export async function startMealPhotoAnalysis(
+  ctx: Context,
+  telegramId: number,
+  imageBase64: string,
+  mimeType: string
+): Promise<void> {
+  let analysis: MealAnalysis;
+  try {
+    analysis = await analyzeMealPhoto({ imageBase64, mimeType });
+  } catch (error) {
+    if (!(error instanceof GeminiAnalysisError)) throw error;
+    await ctx.reply(
+      "Maaf, aku belum bisa membaca gizi dari foto itu. Coba foto lagi dengan pencahayaan yang lebih jelas ya."
+    );
+    return;
+  }
 
-  await ctx.reply(formatDraftMessage(draft), {
-    reply_markup: buildDraftKeyboard(draft.id),
-  });
+  await createDraftFromAnalysis(ctx, telegramId, "photo", analysis);
 }
 
 export type MealDraftAction = "dec" | "inc" | "edit" | "save";
