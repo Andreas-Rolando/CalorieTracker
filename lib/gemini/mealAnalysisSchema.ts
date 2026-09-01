@@ -48,15 +48,17 @@ export type MealAnalysis = z.infer<typeof mealAnalysisSchema>;
 
 /**
  * Gemini's `responseJsonSchema` only supports a specific subset of JSON
- * Schema (per the @google/genai SDK docs): $id, $defs, $ref, $anchor,
- * type, format, title, description, enum, items, prefixItems, minItems,
- * maxItems, minimum, maximum, anyOf, oneOf, properties,
- * additionalProperties, required, propertyOrdering. Notably NOT included:
- * minLength/maxLength, which `z.toJSONSchema()` emits for every bounded
- * string field — sending those causes Gemini to reject the whole request
- * with 400 INVALID_ARGUMENT. Business-length bounds are still enforced by
- * `mealAnalysisSchema` at runtime; only the schema we hand to Gemini needs
- * pruning.
+ * Schema. The @google/genai SDK docs list minimum/maximum as supported
+ * alongside minItems/maxItems, but live testing against the real API
+ * showed the opposite: minItems/maxItems work fine, while minimum/maximum
+ * on number fields make the whole request fail with 400 INVALID_ARGUMENT
+ * (confirmed by bisecting a real failing request — removing minimum/
+ * maximum alone fixed it, nothing else needed to change). So this
+ * allowlist is narrower than the documented one, based on what actually
+ * works. minLength/maxLength (which `z.toJSONSchema()` emits for every
+ * bounded string field) are excluded for the same reason. All of these
+ * business bounds are still enforced by `mealAnalysisSchema` at runtime —
+ * only the schema we hand to Gemini needs pruning.
  */
 const GEMINI_JSON_SCHEMA_SUPPORTED_KEYS = new Set([
   "$id",
@@ -72,8 +74,6 @@ const GEMINI_JSON_SCHEMA_SUPPORTED_KEYS = new Set([
   "prefixItems",
   "minItems",
   "maxItems",
-  "minimum",
-  "maximum",
   "anyOf",
   "oneOf",
   "properties",

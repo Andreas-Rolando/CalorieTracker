@@ -69,7 +69,7 @@ describe("MEAL_ANALYSIS_JSON_SCHEMA", () => {
     );
   });
 
-  it("never contains minLength/maxLength (unsupported by Gemini's responseJsonSchema)", () => {
+  it("never contains minLength/maxLength/minimum/maximum (unsupported by Gemini's responseJsonSchema in practice)", () => {
     const seenKeys = new Set<string>();
     const collectKeys = (node: unknown): void => {
       if (Array.isArray(node)) {
@@ -87,6 +87,14 @@ describe("MEAL_ANALYSIS_JSON_SCHEMA", () => {
 
     expect(seenKeys.has("minLength")).toBe(false);
     expect(seenKeys.has("maxLength")).toBe(false);
+    expect(seenKeys.has("minimum")).toBe(false);
+    expect(seenKeys.has("maximum")).toBe(false);
     expect(seenKeys.has("$schema")).toBe(false);
+  });
+
+  it("still keeps minItems/maxItems (those work fine against the live API)", () => {
+    const items = MEAL_ANALYSIS_JSON_SCHEMA.properties as Record<string, { minItems?: number; maxItems?: number }>;
+    expect(items.items.minItems).toBe(1);
+    expect(items.items.maxItems).toBe(20);
   });
 });
