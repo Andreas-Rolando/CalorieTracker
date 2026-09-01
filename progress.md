@@ -428,3 +428,119 @@ project — needs to be run via SQL Editor like `0001` was.
   SQL Editor.
 - Confirm `GEMINI_MODEL` is updated in Vercel and redeployed.
 - Re-run the full smoke test, then continue to Milestone 3 (Photo).
+
+---
+
+## 2026-09-01 — Confirmed live: retry cap + real meal logging working
+
+**Implemented** — no code changes, verification only.
+- Confirmed migration `0002` is live (RPC accepts `p_max_attempts`).
+- Confirmed the webhook backlog fully drained (`pending_update_count:
+  0`) and the last ~10 `telegram_updates` are all `status: processed`
+  with no stuck/failed rows.
+- Confirmed real meal logging is working end-to-end via actual user
+  traffic: "Mie Ayam" (480 kcal) and "Americano Tanpa Gula" (5 kcal)
+  both landed in `daily_food_logs` with sensible macros, sourced from
+  real `/start` → text meal → save flows.
+- Flagged to the user that one successful save only got through after
+  8 attempts against `gemini-3.6-flash` (visible in that update's
+  `last_error`, a stale 429 from before it eventually succeeded) —
+  meaning `GEMINI_MODEL` likely hadn't actually been switched to
+  `gemini-flash-lite-latest` in Vercel yet at that point. Asked the
+  user to double check.
+
+**Files Changed** — none.
+
+**Database Changes** — cleaned up two more throwaway test rows in
+`telegram_updates` (`999999002`, from re-verifying migration `0002`).
+
+**Environment Changes** — none by me; user was asked to confirm
+`GEMINI_MODEL` in Vercel.
+
+**Validation** — read-only checks against live Supabase/Telegram data,
+no build/test impact.
+
+**Remaining Issues** — same as before: unconfirmed whether
+`GEMINI_MODEL` was actually switched in Vercel.
+
+**Recommended Next Step** — proceed to Milestone 3 regardless (done in
+the entry below), but still worth the user confirming the Vercel env
+var so future quota exhaustion degrades gracefully (fallback message)
+instead of needing several retries.
+
+---
+
+## 2026-09-01 — Milestone 3 (Photo)
+
+**Implemented**
+- User sent a real photo of a snack's nutrition-facts label and got no
+  response (photo handling didn't exist yet) — asked for it to "langsung
+  di kalkulasi". Implemented photo meal logging reusing the existing
+  `meal_drafts` pipeline end to end.
+- `lib/telegram/photoDownload.ts`: downloads a Telegram file by
+  `file_path` into memory as base64 (10MB guard; Telegram itself caps
+  bot downloads at 20MB). Never written to disk/storage.
+- `lib/gemini/mealAnalysis.ts`: added `analyzeMealPhoto()`, refactored
+  to share response parsing/validation (`generateAnalysis`) with
+  `analyzeMealText()`. Uses `createPartFromBase64` +
+  `createUserContent` from `@google/genai` to build a multimodal
+  request, with the *same* `MEAL_ANALYSIS_JSON_SCHEMA` used for text.
+- Photo-specific system instruction handles two cases: (1) a nutrition
+  label — read the printed per-serving values directly rather than
+  estimating, use the label's serving size (e.g. "Takaran Saji: 39g")
+  as the base portion so the user can still correct with ±25%; (2) a
+  plate of food — visual estimation, same as before.
+- `lib/telegram/mealDraft.ts`: added `startMealPhotoAnalysis()`,
+  factored `createDraftFromAnalysis()` out of `startMealAnalysis()` so
+  both entry points share draft creation + preview rendering.
+- `lib/telegram/bot.ts`: `message:photo` handler — checks onboarding,
+  sends a "typing" chat action (vision calls take longer than text),
+  downloads via `ctx.getFile()`, then calls `startMealPhotoAnalysis`.
+  Updated `/help` text to mention photos.
+- Deliberately did **not** implement true barcode-number decoding (PRD
+  section 29) — reading a printed nutrition table is a different,
+  more-reliable-for-Gemini task than decoding a barcode symbol, and the
+  PRD itself recommends a dedicated decoder library for that, not
+  Gemini. If the user wants actual barcode scanning (not just reading
+  a visible nutrition label), that's still a separate future feature.
+
+**Files Changed**
+- Added: `lib/telegram/photoDownload.ts`.
+- Modified: `lib/gemini/mealAnalysis.ts`, `lib/telegram/mealDraft.ts`,
+  `lib/telegram/bot.ts`.
+
+**Database Changes** — none (reuses `meal_drafts`/`daily_food_logs`
+from Milestone 0, `source: "photo"` was already a valid enum value).
+
+**Environment Changes** — none.
+
+**Validation**
+- `npm run typecheck` ✅
+- `npm run lint` ✅
+- `npm test` ✅ (34/34 — no new unit tests; the new code is
+  Telegram/Gemini integration glue, consistent with how
+  `startMealAnalysis`/the webhook route aren't unit tested either)
+- `npm run build` ✅
+- Live: one careful single-shot test against the real Gemini API with
+  a synthetic 1x1 image, confirming the multimodal request shape
+  (`createPartFromBase64`/`createUserContent`) and schema are accepted
+  — Gemini correctly returned `confidence: 0` and "no food visible"
+  for the blank image, i.e. graceful degradation works as designed.
+  **Not yet tested with a real food/label photo end-to-end through the
+  actual bot** — quota-conscious, left that for the user to try.
+
+**Remaining Issues**
+- Not yet confirmed against a real nutrition-label or food photo sent
+  through the live bot (only a synthetic blank-image API call was
+  tested directly, to conserve quota).
+- Photo mime type is hardcoded to `image/jpeg` (correct for Telegram's
+  compressed `message.photo`, which is what the handler listens for —
+  would need adjusting if uncompressed `message.document` image
+  uploads are ever supported).
+- True barcode decoding remains unimplemented (by design, see above).
+
+**Recommended Next Step**
+- User: send a real meal or nutrition-label photo to the bot and
+  confirm the draft preview, portion correction, and save all work.
+- Then continue with **Milestone 4 (Progress)**: `/bb`, `/air`,
+  `/workout`, MET-based calorie burn.
