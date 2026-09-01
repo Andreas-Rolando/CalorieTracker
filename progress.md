@@ -278,3 +278,91 @@ introduced.
 - Re-run the full smoke test against the live deployment (onboarding
   through timezone, meal logging, portion correction, `/hariini`).
 - Then continue to **Milestone 3 (Photo)** as previously planned.
+
+---
+
+## 2026-09-01 — Gemini responseJsonSchema: minimum/maximum silently unsupported
+
+**Implemented**
+- Root-caused the meal-logging 400 `INVALID_ARGUMENT` from real webhook
+  traffic (visible in `telegram_updates.last_error`) by bisecting the
+  actual schema against the live Gemini API with a series of throwaway
+  local scripts (removed after use, not committed): stripped the schema
+  down piece by piece until isolating the exact cause.
+- **Finding**: contrary to the `@google/genai` SDK's own doc comment
+  (which lists `minimum`/`maximum` as supported for `responseJsonSchema`
+  alongside `minItems`/`maxItems`), the live API rejects any schema
+  containing numeric `minimum`/`maximum` with 400 INVALID_ARGUMENT.
+  `minItems`/`maxItems` on arrays work fine. Confirmed via isolated
+  before/after tests, then confirmed end-to-end with the app's actual
+  generated schema and prompt.
+- `lib/gemini/mealAnalysisSchema.ts`: removed `minimum`/`maximum` from
+  `GEMINI_JSON_SCHEMA_SUPPORTED_KEYS`, so they're pruned the same way
+  `minLength`/`maxLength` already were. All business-value bounds are
+  still enforced by `mealAnalysisSchema.safeParse()` at runtime — this
+  only affects what's sent to Gemini, not what we accept back.
+  Documented the discrepancy from the SDK docs directly in the code
+  comment so a future reader isn't misled by the official-looking list.
+- Along the way, discovered the free tier for `gemini-3.6-flash` (the
+  non-lite Flash model) is capped at **20 requests/day**, and real
+  webhook retry traffic plus debugging exhausted it mid-investigation
+  (surfaced as 429 RESOURCE_EXHAUSTED, distinct from the 400 being
+  chased). Switched default/local `GEMINI_MODEL` to
+  `gemini-flash-lite-latest` — an alias that tracks whichever lite
+  model is current, which should also make the app more resistant to
+  the kind of breakage `gemini-2.5-flash` deprecating caused earlier
+  today.
+- Added a regression test (`mealAnalysisSchema.test.ts`) asserting the
+  generated schema never contains `minLength`/`maxLength`/`minimum`/
+  `maximum`/`$schema`, and that `minItems`/`maxItems` are still present.
+
+**Files Changed**
+- Modified: `lib/gemini/mealAnalysisSchema.ts`,
+  `lib/gemini/mealAnalysisSchema.test.ts`, `lib/env.ts` (model default),
+  `.env.example`.
+- No files left behind: all live-API bisection scripts were scratch
+  files outside the repo's tracked structure, deleted after use.
+
+**Database Changes** — none. (Two throwaway rows I inserted into
+`telegram_updates` while testing — `999999001` and `900000001` — were
+deleted afterward.)
+
+**Environment Changes** — `.env.local`'s `GEMINI_MODEL` updated to
+`gemini-flash-lite-latest`. **The same change still needs to be made in
+Vercel's project env vars** (explicit env values there override the
+code's default) — not yet confirmed done.
+
+**Validation**
+- `npm run typecheck` ✅
+- `npm run lint` ✅
+- `npm test` ✅ (34/34)
+- `npm run build` ✅
+- Live: confirmed end-to-end against the real Gemini API using the
+  app's actual generated schema, system instruction, and prompt shape —
+  got back a well-formed, schema-conforming meal analysis.
+
+**Remaining Issues**
+- Vercel's `GEMINI_MODEL` env var still needs updating to
+  `gemini-flash-lite-latest` (or whatever the user prefers) and
+  redeploying — the code fix alone doesn't take effect in production
+  until that's done.
+- Telegram was still showing a backlog of pending webhook updates
+  (`pending_update_count: 7`) as of the last check, including the
+  original stuck meal-logging message and a `/start` sent during
+  testing. Telegram delivers webhook updates in order and won't
+  advance past a failing one, so this should self-resolve once the
+  fix is live and Telegram's automatic retry reaches that update
+  again — not yet confirmed.
+- The free-tier daily quota (20/day on Flash, unknown-but-likely-higher
+  on Flash-Lite) is a real constraint worth keeping in mind for a bot
+  meant to log every meal/water/workout — may need billing enabled on
+  the Google Cloud project if usage grows past whatever Flash-Lite's
+  free limit turns out to be.
+
+**Recommended Next Step**
+- User: update `GEMINI_MODEL` to `gemini-flash-lite-latest` in Vercel,
+  redeploy, then re-send a meal description to the bot to confirm it
+  works live end-to-end (not just against the API directly, as done
+  here).
+- Then re-run the full smoke test (onboarding → meal save → portion
+  correction → `/hariini`) and continue to Milestone 3 (Photo).
