@@ -366,3 +366,65 @@ code's default) — not yet confirmed done.
   here).
 - Then re-run the full smoke test (onboarding → meal save → portion
   correction → `/hariini`) and continue to Milestone 3 (Photo).
+
+---
+
+## 2026-09-01 — Cap webhook retries per update
+
+**Implemented**
+- User asked directly: bound webhook retries so a permanently-failing
+  update can't keep burning Gemini quota forever. Previously, any
+  non-`GeminiAnalysisError` failure (raw SDK errors — the 400/429s from
+  the session above) propagated out of `bot.handleUpdate`, got marked
+  `failed`, and the webhook returned 500 — which makes Telegram retry
+  the *same* update indefinitely, re-running the full (possibly
+  quota-limited) Gemini call every time.
+- `reserve_telegram_update` now takes a `p_max_attempts` param (default
+  5, migration `0002_reserve_telegram_update_max_attempts.sql`, applied
+  via `CREATE OR REPLACE FUNCTION` since `0001` was already live). Once
+  an update_id's `attempt_count` reaches that cap — whether it's
+  sitting as `failed` or stuck with a stale `processing` lock — the
+  function returns `'abandon'` instead of reclaiming it again.
+- `lib/repositories/telegramUpdates.ts`: `UpdateReservation` gained the
+  `"abandon"` variant; `MAX_ATTEMPTS = 5` constant.
+- `app/api/telegram/webhook/route.ts`: on `abandon`, stops Telegram's
+  retry loop by responding 200 (instead of continuing to 500-and-retry),
+  and best-effort notifies the user directly via a raw `sendMessage`
+  call (`lib/telegram/fallbackMessage.ts`) so a dropped message doesn't
+  just silently vanish — "Maaf, aku gagal memproses pesan itu setelah
+  beberapa kali coba. Coba kirim ulang ya."
+
+**Files Changed**
+- Added: `supabase/migrations/0002_reserve_telegram_update_max_attempts.sql`,
+  `lib/telegram/fallbackMessage.ts`.
+- Modified: `lib/repositories/telegramUpdates.ts`,
+  `app/api/telegram/webhook/route.ts`.
+
+**Database Changes** — new migration `0002` (function replacement only,
+no schema/table changes). **Not yet applied** to the live Supabase
+project — needs to be run via SQL Editor like `0001` was.
+
+**Environment Changes** — none.
+
+**Validation**
+- `npm run typecheck` ✅
+- `npm run lint` ✅
+- `npm test` ✅ (34/34 — unchanged; `reserveTelegramUpdate` and
+  `extractChatId` are thin integration/glue code not covered by unit
+  tests, consistent with how the rest of the repository layer is
+  tested in this project)
+- `npm run build` ✅
+- Not exercised live yet — migration `0002` needs applying first.
+
+**Remaining Issues**
+- Migration `0002` needs to be applied to Supabase before this takes
+  effect in production.
+- `GEMINI_MODEL=gemini-flash-lite-latest` still needs updating in
+  Vercel's env vars (from the previous entry) — unconfirmed whether
+  done yet.
+
+**Recommended Next Step**
+- Apply `0002_reserve_telegram_update_max_attempts.sql` via Supabase
+  SQL Editor.
+- Confirm `GEMINI_MODEL` is updated in Vercel and redeployed.
+- Re-run the full smoke test, then continue to Milestone 3 (Photo).
